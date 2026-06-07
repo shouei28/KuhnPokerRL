@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Texas Hold'em DQN Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0e17;--card:#111827;--card2:#1a2332;--border:#1e2d3d;--accent:#6366f1;--accent2:#818cf8;--green:#10b981;--red:#ef4444;--yellow:#f59e0b;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.header{padding:20px 32px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#111827,var(--bg))}
+.logo{display:flex;align-items:center;gap:12px;font-size:20px;font-weight:700}
+.logo span{font-size:28px}
+.status-badge{padding:6px 16px;border-radius:20px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+.status-idle{background:#1e293b;color:var(--text3)}
+.status-training{background:rgba(16,185,129,0.15);color:var(--green);animation:pulse 2s infinite}
+.status-paused{background:rgba(245,158,11,0.15);color:var(--yellow)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.6}}
+.grid{display:grid;grid-template-columns:320px 1fr 320px;gap:20px;padding:20px 32px;height:calc(100vh - 73px)}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;overflow-y:auto}
+.panel h3{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:16px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
+.stat{background:var(--card2);border-radius:12px;padding:14px}
+.stat-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px}
+.stat-value{font-size:24px;font-weight:700;margin-top:4px}
+.stat-value.green{color:var(--green)}.stat-value.red{color:var(--red)}.stat-value.accent{color:var(--accent2)}.stat-value.yellow{color:var(--yellow)}
+.btn-group{display:flex;gap:8px;margin-bottom:20px}
+.btn{flex:1;padding:10px;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.btn-start{background:var(--green);color:#fff}.btn-start:hover{background:#059669}
+.btn-pause{background:var(--yellow);color:#000}.btn-pause:hover{background:#d97706}
+.btn-save{background:var(--accent);color:#fff}.btn-save:hover{background:#4f46e5}
+.btn-stop{background:var(--red);color:#fff}.btn-stop:hover{background:#dc2626}
+.btn:disabled{opacity:0.3;cursor:not-allowed}
+.input-group{margin-bottom:12px}
+.input-group label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px}
+.input-group input,.input-group select{width:100%;padding:8px 12px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px}
+.input-group input:focus{outline:none;border-color:var(--accent)}
+.divider{height:1px;background:var(--border);margin:16px 0}
+.chart-container{position:relative;height:220px;margin-bottom:16px}
+.game-card{background:var(--card2);border-radius:10px;padding:12px;margin-bottom:8px;border-left:3px solid var(--text3)}
+.game-card.win{border-left-color:var(--green)}.game-card.loss{border-left-color:var(--red)}.game-card.draw{border-left-color:var(--yellow)}
+.game-result{font-size:12px;font-weight:600;margin-bottom:4px}
+.game-result.win{color:var(--green)}.game-result.loss{color:var(--red)}.game-result.draw{color:var(--yellow)}
+.game-actions{font-size:11px;color:var(--text3);word-break:break-word}
+.game-reward{font-size:13px;font-weight:600;float:right}
+.action-bar{display:flex;gap:3px;margin-bottom:6px}
+.action-segment{height:24px;border-radius:4px;min-width:2px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;transition:width 0.5s}
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;z-index:999;animation:slideIn 0.3s;opacity:0;transition:opacity 0.3s}
+.toast.show{opacity:1}.toast.success{background:var(--green);color:#fff}.toast.error{background:var(--red);color:#fff}.toast.info{background:var(--accent);color:#fff}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.center-panel{display:flex;flex-direction:column;gap:16px}
+.progress-bar{width:100%;height:6px;background:var(--card2);border-radius:3px;overflow:hidden;margin-top:8px}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:3px;transition:width 0.5s}
+@media(max-width:1100px){.grid{grid-template-columns:1fr;height:auto}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo"><span>🃏</span> Texas Hold'em DQN Trainer</div>
+  <div class="status-badge status-idle" id="statusBadge">Idle</div>
+</div>
+
+<div class="grid">
+  <!-- LEFT PANEL: Controls -->
+  <div class="panel">
+    <h3>Training Controls</h3>
+    <div class="btn-group">
+      <button class="btn btn-start" id="btnStart" onclick="startTraining()">▶ Start</button>
+      <button class="btn btn-pause" id="btnPause" onclick="pauseTraining()" disabled>⏸ Pause</button>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-save" id="btnSave" onclick="saveModel()" disabled>💾 Save</button>
+      <button class="btn btn-stop" id="btnStop" onclick="stopTraining()" disabled>⏹ Stop</button>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+    <p style="font-size:11px;color:var(--text3);margin-top:4px;text-align:right" id="progressText">0%</p>
+
+    <div class="divider"></div>
+    <h3>Hyperparameters</h3>
+    <div class="input-group"><label>Total Timesteps</label><input type="number" id="totalSteps" value="200000"></div>
+    <div class="input-group"><label>Learning Rate</label><input type="number" id="lr" value="0.0001" step="0.00001"></div>
+    <div class="input-group"><label>Batch Size</label><input type="number" id="batchSize" value="64"></div>
+    <div class="input-group"><label>Gamma (Discount)</label><input type="number" id="gamma" value="0.99" step="0.01"></div>
+    <div class="input-group"><label>Exploration Fraction</label><input type="number" id="explFrac" value="0.3" step="0.05"></div>
+    <div class="input-group"><label>Final Epsilon</label><input type="number" id="explEps" value="0.05" step="0.01"></div>
+    <div class="input-group"><label>Eval Every N Steps</label><input type="number" id="evalFreq" value="2000"></div>
+
+    <div class="divider"></div>
+    <h3>Reward Shaping</h3>
+    <div class="input-group"><label>Fold Penalty</label><input type="number" id="foldPenalty" value="0" step="0.1"></div>
+    <div class="input-group"><label>Raise Bonus</label><input type="number" id="raiseBonus" value="0" step="0.1"></div>
+    <div class="input-group"><label>Survival Bonus</label><input type="number" id="survivalBonus" value="0" step="0.05"></div>
+  </div>
+
+  <!-- CENTER PANEL: Charts -->
+  <div class="center-panel">
+    <div class="panel">
+      <h3>Live Statistics</h3>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-label">Step</div><div class="stat-value accent" id="statStep">0</div></div>
+        <div class="stat"><div class="stat-label">Epsilon</div><div class="stat-value yellow" id="statEps">1.0</div></div>
+        <div class="stat"><div class="stat-label">Win Rate</div><div class="stat-value green" id="statWin">—</div></div>
+        <div class="stat"><div class="stat-label">Avg Reward</div><div class="stat-value" id="statReward" style="color:var(--text)">—</div></div>
+      </div>
+      <h3>Action Distribution</h3>
+      <div class="action-bar" id="actionBar"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+        <span style="font-size:10px;color:#ef4444">● Fold</span>
+        <span style="font-size:10px;color:#3b82f6">● Check</span>
+        <span style="font-size:10px;color:#10b981">● Call</span>
+        <span style="font-size:10px;color:#f59e0b">● Raise½</span>
+        <span style="font-size:10px;color:#8b5cf6">● RaiseFull</span>
+      </div>
+    </div>
+    <div class="panel" style="flex:1">
+      <h3>Win Rate Over Training</h3>
+      <div class="chart-container"><canvas id="winChart"></canvas></div>
+      <h3>Average Reward Over Training</h3>
+      <div class="chart-container"><canvas id="rewardChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL: Game Log -->
+  <div class="panel">
+    <h3>Recent Games</h3>
+    <div id="gameLog"><p style="color:var(--text3);font-size:13px">No games yet. Start training to see game results.</p></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const socket = io();
+const ACTION_COLORS = ['#ef4444','#3b82f6','#10b981','#f59e0b','#8b5cf6'];
+const ACTION_NAMES = ['Fold','Check','Call','Raise½','RaiseFull'];
+let totalSteps = 200000;
+
+// Charts
+const chartOpts = (label, color) => ({
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { grid: { color: '#1e2d3d' }, ticks: { color: '#64748b', font: { size: 10 } } },
+    y: { grid: { color: '#1e2d3d' }, ticks: { color: '#64748b', font: { size: 10 } } }
+  },
+  elements: { point: { radius: 3 }, line: { tension: 0.3, borderWidth: 2 } }
+});
+
+const winChart = new Chart(document.getElementById('winChart'), {
+  type: 'line',
+  data: { labels: [], datasets: [{ label: 'Win Rate %', data: [], borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true }] },
+  options: chartOpts()
+});
+
+const rewardChart = new Chart(document.getElementById('rewardChart'), {
+  type: 'line',
+  data: { labels: [], datasets: [{ label: 'Avg Reward', data: [], borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)', fill: true }] },
+  options: chartOpts()
+});
+
+// Socket handlers
+socket.on('connect', () => socket.emit('get_state'));
+
+socket.on('training_update', (d) => {
+  document.getElementById('statStep').textContent = d.step.toLocaleString();
+  document.getElementById('statEps').textContent = d.epsilon.toFixed(4);
+  updateProgress(d.step);
+  updateActionBar(d.action_counts);
+  if (d.recent_games) updateGameLog(d.recent_games);
+});
+
+socket.on('eval_update', (d) => {
+  document.getElementById('statWin').textContent = d.win_rate + '%';
+  document.getElementById('statReward').textContent = d.avg_reward;
+  document.getElementById('statReward').style.color = d.avg_reward >= 0 ? '#10b981' : '#ef4444';
+  if (d.history) {
+    winChart.data.labels = d.history.steps.map(s => (s/1000).toFixed(0)+'k');
+    winChart.data.datasets[0].data = d.history.win_rates;
+    winChart.update('none');
+    rewardChart.data.labels = d.history.steps.map(s => (s/1000).toFixed(0)+'k');
+    rewardChart.data.datasets[0].data = d.history.avg_rewards;
+    rewardChart.update('none');
+  }
+});
+
+socket.on('status', (d) => {
+  const badge = document.getElementById('statusBadge');
+  const s = d.status;
+  badge.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+  badge.className = 'status-badge status-' + (s === 'completed' || s === 'saved' ? 'training' : s);
+
+  if (s === 'training') { setButtons(false, true, true, true); badge.className = 'status-badge status-training'; }
+  else if (s === 'paused') { setButtons(false, true, true, true); document.getElementById('btnPause').textContent = '▶ Resume'; }
+  else if (s === 'stopped' || s === 'completed' || s === 'error') { setButtons(true, false, false, false); badge.className = 'status-badge status-idle'; }
+
+  if (s === 'saved') showToast(d.message, 'success');
+  else if (s === 'error') showToast(d.message, 'error');
+  else if (s === 'completed') showToast('Training completed!', 'success');
+  else if (s !== 'training' && s !== 'paused') showToast(d.message, 'info');
+});
+
+socket.on('full_state', (d) => {
+  document.getElementById('statStep').textContent = d.step.toLocaleString();
+  document.getElementById('statEps').textContent = (d.epsilon || 1).toFixed(4);
+  if (d.win_rate) document.getElementById('statWin').textContent = d.win_rate + '%';
+  if (d.avg_reward) document.getElementById('statReward').textContent = d.avg_reward;
+  if (d.is_running) setButtons(false, true, true, true);
+  updateActionBar(d.action_counts);
+  if (d.history && d.history.steps.length) {
+    winChart.data.labels = d.history.steps.map(s => (s/1000).toFixed(0)+'k');
+    winChart.data.datasets[0].data = d.history.win_rates;
+    winChart.update('none');
+    rewardChart.data.labels = d.history.steps.map(s => (s/1000).toFixed(0)+'k');
+    rewardChart.data.datasets[0].data = d.history.avg_rewards;
+    rewardChart.update('none');
+  }
+});
+
+// Actions
+function startTraining() {
+  totalSteps = parseInt(document.getElementById('totalSteps').value);
+  socket.emit('start_training', {
+    total_timesteps: totalSteps,
+    hyperparams: {
+      lr: parseFloat(document.getElementById('lr').value),
+      batch_size: parseInt(document.getElementById('batchSize').value),
+      gamma: parseFloat(document.getElementById('gamma').value),
+      exploration_fraction: parseFloat(document.getElementById('explFrac').value),
+      exploration_final_eps: parseFloat(document.getElementById('explEps').value),
+      eval_freq: parseInt(document.getElementById('evalFreq').value),
+    },
+    reward_shaping: {
+      fold_penalty: parseFloat(document.getElementById('foldPenalty').value),
+      raise_bonus: parseFloat(document.getElementById('raiseBonus').value),
+      survival_bonus: parseFloat(document.getElementById('survivalBonus').value),
+    }
+  });
+  document.getElementById('btnPause').textContent = '⏸ Pause';
+}
+
+function pauseTraining() {
+  socket.emit('pause_training');
+  const btn = document.getElementById('btnPause');
+  btn.textContent = btn.textContent.includes('Pause') ? '▶ Resume' : '⏸ Pause';
+}
+
+function saveModel() { socket.emit('save_model'); }
+function stopTraining() { socket.emit('stop_training'); }
+
+function setButtons(start, pause, save, stop) {
+  document.getElementById('btnStart').disabled = !start;
+  document.getElementById('btnPause').disabled = !pause;
+  document.getElementById('btnSave').disabled = !save;
+  document.getElementById('btnStop').disabled = !stop;
+}
+
+function updateProgress(step) {
+  const pct = Math.min(100, (step / totalSteps) * 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressText').textContent = pct.toFixed(1) + '%';
+}
+
+function updateActionBar(counts) {
+  const total = counts.reduce((a, b) => a + b, 0) || 1;
+  const bar = document.getElementById('actionBar');
+  bar.innerHTML = counts.map((c, i) => {
+    const pct = (c / total * 100);
+    return pct > 0 ? `<div class="action-segment" style="width:${pct}%;background:${ACTION_COLORS[i]}">${pct > 8 ? Math.round(pct) + '%' : ''}</div>` : '';
+  }).join('');
+}
+
+function updateGameLog(games) {
+  const el = document.getElementById('gameLog');
+  if (!games.length) return;
+  el.innerHTML = games.map(g => `
+    <div class="game-card ${g.result.toLowerCase()}">
+      <div class="game-result ${g.result.toLowerCase()}">
+        ${g.result} <span class="game-reward" style="color:${g.reward >= 0 ? '#10b981' : '#ef4444'}">${g.reward >= 0 ? '+' : ''}${g.reward}</span>
+      </div>
+      <div class="game-actions">${g.actions.join(' → ')}</div>
+    </div>
+  `).join('');
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.className = 'toast', 3000);
+}
+</script>
+</body>
+</html>

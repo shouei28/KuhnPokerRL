@@ -1,3 +1,4 @@
+import random
 from pettingzoo.classic import texas_holdem_no_limit_v6
 
 # Initialize the environment
@@ -11,7 +12,9 @@ for agent in env.agent_iter():
         action = None
     else:
         # observation['observation'] contains the vectorized state (cards + betting history)
-        # This is where your DQN predicts the action based on the one-hot encoded state
-        action = env.action_space(agent).sample() # Replace with your DQN policy
+        # Use action_mask to only pick from legal actions
+        action_mask = observation['action_mask']
+        legal_actions = [i for i, valid in enumerate(action_mask) if valid]
+        action = random.choice(legal_actions)  # Replace with your DQN policy
         
     env.step(action)
